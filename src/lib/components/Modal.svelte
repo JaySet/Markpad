@@ -133,7 +133,6 @@
 		right: 0;
 		bottom: 0;
 		background: rgba(0, 0, 0, 0.4);
-		/* backdrop-filter: blur(2px); */
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -209,8 +208,8 @@
 	}
 
 	.modal-btn.primary {
-		background: #0078d4;
-		color: white;
+		background: var(--color-accent-fg);
+		color: var(--color-btn-fg);
 	}
 
 	.modal-btn.primary.warning {

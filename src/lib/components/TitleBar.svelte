@@ -78,8 +78,8 @@
 
 		isFullWidth?: boolean;
 		ontoggleFullWidth?: () => void;
-		theme?: 'system' | 'dark' | 'light';
-		onSetTheme?: (theme: 'system' | 'dark' | 'light') => void;
+		theme?: string;
+		onSetTheme?: (theme: string) => void;
 		onopenSettings?: () => void;
 	}>();
 
@@ -88,7 +88,6 @@
 	let innerWidth = $state(1000);
 	let isCollapsed = $derived(innerWidth <= 450 || settings.zenMode);
 
-	// DEBUG: Set this to true to simulate macOS traffic lights on Windows
 	const DEBUG_MACOS = false;
 
 	const isMac = typeof navigator !== 'undefined' && (navigator.userAgent.includes('Macintosh') || DEBUG_MACOS);
@@ -175,7 +174,7 @@
 		}
 	});
 
-	const inlineIds = ['fullWidth', 'edit', 'split', 'sync', 'live'];
+	const inlineIds = ['toc', 'fullWidth', 'edit', 'split', 'sync', 'live'];
 
 	let visibleActionIds = $derived.by(() => {
 		const list: string[] = [];
@@ -187,6 +186,7 @@
 			const isMarkdown = ['md', 'markdown', 'mdown', 'mkd'].includes(ext);
 
 			if (isMarkdown) {
+				list.push('toc');
 				if (!tabManager.activeTab?.isSplit) {
 					list.push('fullWidth');
 					if (!isEditing && currentFile) {
@@ -214,6 +214,17 @@
 	let kebabMenuOpen = $state(false);
 	let homeMenuOpen = $state(false);
 	let appVersion = $state('');
+	let savedVscodeThemes = $state<string[]>([]);
+	
+	$effect(() => {
+		if (themeMenuOpen) {
+			invoke('get_saved_vscode_themes')
+				.then((themes) => {
+					savedVscodeThemes = themes as string[];
+				})
+				.catch(console.error);
+		}
+	});
 
 	$effect(() => {
 		getVersion()
@@ -223,7 +234,7 @@
 			.catch(console.error);
 	});
 
-	function handleSetTheme(t: 'system' | 'dark' | 'light') {
+	function handleSetTheme(t: string) {
 		if (onSetTheme) onSetTheme(t);
 		themeMenuOpen = false;
 	}
@@ -600,6 +611,24 @@
 							></svg>
 						<span class="action-label">Auto-Reload</span>
 					</button>
+				{:else if id === 'toc'}
+					<button
+						class="title-action-btn {settings.showToc ? 'active' : ''}"
+						onclick={() => settings.toggleToc()}
+						aria-label="{settings.showToc ? 'Hide' : 'Show'} Table of Contents"
+						onmouseenter={(e) => showTooltip(e, (settings.showToc ? 'Hide' : 'Show') + ' Table of Contents')}
+						onmouseleave={hideTooltip}
+						transition:fly={{ x: 10, duration: 200 }}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<line x1="8" y1="6" x2="21" y2="6"></line>
+							<line x1="8" y1="12" x2="21" y2="12"></line>
+							<line x1="8" y1="18" x2="21" y2="18"></line>
+							<line x1="3" y1="6" x2="3.01" y2="6"></line>
+							<line x1="3" y1="12" x2="3.01" y2="12"></line>
+							<line x1="3" y1="18" x2="3.01" y2="18"></line>
+						</svg>
+						<span class="action-label">Table of Contents</span>
+					</button>
 				{:else if id === 'edit'}
 					<button
 						class="title-action-btn {isEditing ? 'active' : ''}"
@@ -647,13 +676,21 @@
 								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
 									><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
 							{/if}
-							<span class="action-label">Toggle Theme</span>
+							<span class="action-label">Change Theme</span>
 						</button>
 						{#if themeMenuOpen}
 							<div class="theme-menu" transition:fly={{ y: 5, duration: 150 }} onclick={(e) => e.stopPropagation()}>
 								<button class="theme-option {theme === 'system' ? 'selected' : ''}" onclick={() => handleSetTheme('system')}> Follow System </button>
-								<button class="theme-option {theme === 'light' ? 'selected' : ''}" onclick={() => handleSetTheme('light')}> Light </button>
-								<button class="theme-option {theme === 'dark' ? 'selected' : ''}" onclick={() => handleSetTheme('dark')}> Dark </button>
+								<button class="theme-option {theme === 'light' ? 'selected' : ''}" onclick={() => handleSetTheme('light')}> Default Light </button>
+								<button class="theme-option {theme === 'dark' ? 'selected' : ''}" onclick={() => handleSetTheme('dark')}> Default Dark </button>
+								{#if savedVscodeThemes.length > 0}
+									<div class="theme-menu-divider"></div>
+									{#each savedVscodeThemes as t}
+										<button class="theme-option {theme === `vscode:${t}` ? 'selected' : ''}" onclick={() => handleSetTheme(`vscode:${t}`)}>
+											{t}
+										</button>
+									{/each}
+								{/if}
 							</div>
 						{/if}
 					</div>
@@ -699,10 +736,7 @@
 			</button>
 			<button
 				class="control-btn close-btn"
-				onclick={() => {
-					console.log('Close button clicked');
-					appWindow.close();
-				}}
+				onclick={() => appWindow.close()}
 				aria-label="Close">
 				<svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z" /></svg>
 			</button>
@@ -1071,7 +1105,7 @@
 		border-color: var(--color-border-muted);
 	}
 
-	/* macOS Traffic Lights */
+
 	.macos-traffic-lights {
 		display: flex;
 		gap: 8px;
@@ -1158,7 +1192,6 @@
 			height 0.2s cubic-bezier(0.2, 0, 0.2, 1);
 	}
 
-	/* Alignment Base Transforms (Hidden State) */
 	.custom-tooltip.align-center {
 		transform: translateX(-50%) translateY(-4px);
 	}
@@ -1171,7 +1204,6 @@
 		align-items: flex-end;
 	}
 
-	/* Alignment Visible Transforms */
 	.custom-tooltip.visible {
 		opacity: 1;
 	}
@@ -1210,6 +1242,13 @@
 		width: 120px;
 		z-index: 10005;
 		gap: 1px;
+	}
+
+	.theme-menu-divider {
+		height: 1px;
+		background-color: var(--color-border-default);
+		margin: 4px 0;
+		transform: scaleY(0.5);
 	}
 
 	.theme-option {

@@ -106,7 +106,7 @@
 		border-right: none;
 	}
 
-	/* wrapper styles */
+
 	.tab:hover {
 		background-color: var(--color-neutral-muted);
 	}

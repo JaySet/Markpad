@@ -143,8 +143,8 @@
 	}
 
 	.fluent-btn.primary {
-		background: #0078d4;
-		color: white;
+		background: var(--color-accent-fg);
+		color: var(--color-btn-fg);
 		border: 1px solid rgba(0, 0, 0, 0.1);
 	}
 

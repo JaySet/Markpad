@@ -49,12 +49,10 @@
 	});
 
 	function handleMouseDown(e: MouseEvent, tab: TabData, element: HTMLElement) {
-		if (e.button !== 0) return; // Only left click
-		// e.preventDefault(); // allow click to propagate
-		e.stopPropagation(); // Stop window drag from triggering
+		if (e.button !== 0) return;
+		e.stopPropagation();
 
 		const rect = element.getBoundingClientRect();
-		// Don't set draggingId yet
 		dragState = {
 			startX: e.clientX,
 			currentX: e.clientX,
@@ -71,7 +69,6 @@
 	function handleWindowMouseMove(e: MouseEvent) {
 		if (!dragState || !scrollContainer) return;
 
-		// Check threshold
 		if (!dragState.isDragging) {
 			if (Math.abs(e.clientX - dragState.startX) > 5) {
 				dragState.isDragging = true;
@@ -84,7 +81,6 @@
 		dragState.currentX = e.clientX;
 		dragState.currentY = e.clientY;
 
-		// Auto scroll logic
 		const containerRect = scrollContainer.getBoundingClientRect();
 		const scrollZone = 50;
 		if (e.clientX < containerRect.left + scrollZone) {
@@ -93,14 +89,11 @@
 			scrollContainer.scrollLeft += 10;
 		}
 
-		// Reorder logic
-		// We iterate through tabs to find the best fit position
 		const children = Array.from(scrollContainer.children) as HTMLElement[];
 		let closestIndex = -1;
 		let minDist = Infinity;
 
 		children.forEach((child, index) => {
-			// Check if child corresponds to a tab (it should)
 			if (!child.classList.contains('tab-item-wrapper')) return;
 
 			const rect = child.getBoundingClientRect();
@@ -115,7 +108,6 @@
 
 		if (closestIndex !== -1) {
 			const currentIndex = tabManager.tabs.findIndex((t) => t.id === draggingId);
-			// We only reorder if the index actually changed
 			if (currentIndex !== -1 && currentIndex !== closestIndex) {
 				tabManager.reorderTabs(currentIndex, closestIndex);
 			}
@@ -136,10 +128,8 @@
 		window.removeEventListener('mouseup', handleWindowMouseUp);
 	}
 
-	// Scroll active tab into view logic
 	$effect(() => {
 		const activeId = tabManager.activeTabId;
-		// Don't scroll while dragging to avoid fighting the user
 		if (activeId && scrollContainer && !draggingId) {
 			const index = tabManager.tabs.findIndex((t) => t.id === activeId);
 			if (index !== -1) {
@@ -147,7 +137,6 @@
 					setTimeout(() => {
 						if (!scrollContainer) return;
 
-						// If it's the last tab, just scroll to the very end to be safe
 						if (index === tabManager.tabs.length - 1) {
 							scrollContainer.scrollTo({ left: 99999, behavior: 'smooth' });
 							return;
@@ -185,11 +174,6 @@
 	<div class="scroll-viewport">
 		<div class="scroll-shadow left" class:visible={showLeftArrow}></div>
 
-		<!-- 
-			data-tauri-drag-region allows dragging the window.
-			Because we stopPropagation in handleMouseDown, dragging tabs won't drag the window.
-			But clicking in the empty space between tabs will drag the window.
-		-->
 		<div
 			bind:this={scrollContainer}
 			class="tab-list-container"
@@ -248,7 +232,7 @@
 		align-items: center;
 		height: 100%;
 		overflow: hidden;
-		flex: 1; /* Take all available space */
+		flex: 1;
 		min-width: 0;
 	}
 
@@ -297,9 +281,7 @@
 		height: 100%;
 		padding-left: 10px;
 		scroll-behavior: smooth;
-		/* width: 100%; Removed to allow shrink */
 
-		/* Hide scrollbar */
 		scrollbar-width: none;
 		-ms-overflow-style: none;
 	}
@@ -338,7 +320,6 @@
 		min-width: 20px;
 	}
 
-	/* Drag styles */
 	.tab-item-wrapper {
 		transition: opacity 0.1s;
 	}
@@ -353,7 +334,6 @@
 		z-index: 10000;
 		pointer-events: none;
 		opacity: 0.9;
-		/* Ensure smooth movement */
 		will-change: left, top;
 	}
 </style>
