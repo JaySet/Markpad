@@ -187,8 +187,8 @@
 
 			if (isMarkdown) {
 				list.push('toc');
+				list.push('fullWidth');
 				if (!tabManager.activeTab?.isSplit) {
-					list.push('fullWidth');
 					if (!isEditing && currentFile) {
 						list.push('live');
 					}
