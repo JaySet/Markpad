@@ -178,6 +178,7 @@
 			wordBasedSuggestions: "off",
 			quickSuggestions: false,
 			renderWhitespace: settings.showWhitespace ? "trailing" : "none",
+			padding: { top: 20 },
 			scrollbar: {
 				vertical: "visible",
 				horizontal: "visible",
@@ -1064,15 +1065,46 @@
 		dragCaretDecoration = editor.deltaDecorations(dragCaretDecoration, []);
 	}
 
-	export function undo() {
+	export function revealHeader(text: string) {
+		if (!editor) return;
+		const model = editor.getModel();
+		if (!model) return;
+
+		const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const regex = new RegExp(`^#+\\s+.*${escapedText}.*$`, "m");
+		
+		const match = model.findNextMatch(regex.source, { lineNumber: 1, column: 1 }, true, false, null, true);
+		
+		if (match) {
+			editor.revealLineInCenterIfOutsideViewport(match.range.startLineNumber, monaco.editor.ScrollType.Smooth);
+			editor.setSelection(match.range);
+			editor.focus();
+		} else {
+			const fallbackMatch = model.findNextMatch(escapedText, { lineNumber: 1, column: 1 }, false, false, null, false);
+			if (fallbackMatch) {
+				editor.revealLineInCenterIfOutsideViewport(fallbackMatch.range.startLineNumber, monaco.editor.ScrollType.Smooth);
+				editor.setSelection(fallbackMatch.range);
+				editor.focus();
+			}
+		}
+	}
+
+	export const undo = () => {
 		editor?.focus();
 		editor?.trigger("keyboard", "undo", null);
 	}
 
-	export function redo() {
+	export const redo = () => {
 		editor?.focus();
 		editor?.trigger("keyboard", "redo", null);
 	}
+
+	export const getValue = () => editor?.getValue() || "";
+	export const setValue = (val: string) => editor?.setValue(val);
+	export const focus = () => editor?.focus();
+	export const getViewState = () => editor?.saveViewState();
+	export const restoreViewState = (state: any) => editor?.restoreViewState(state);
+	export const revealLine = (line: number) => editor?.revealLineInCenter(line);
 </script>
 
 <div class="editor-outer">

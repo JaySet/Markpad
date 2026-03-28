@@ -4,6 +4,7 @@
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { onMount, tick, untrack } from 'svelte';
 	import { fly } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import { open, save, ask } from '@tauri-apps/plugin-dialog';
 	import Installer from './Installer.svelte';
@@ -14,7 +15,6 @@
 	import Modal from './components/Modal.svelte';
 	import ContextMenu, { type ContextMenuItem } from './components/ContextMenu.svelte';
 	import Toc from './components/Toc.svelte';
-	import { slide } from 'svelte/transition';
 	import Toast from './components/Toast.svelte';
 	import { exportAsHtml as _exportHtml, exportAsPdf } from './utils/export';
 	import ZoomOverlay from './components/ZoomOverlay.svelte';
@@ -66,6 +66,7 @@ import { processMarkdownHtml } from './utils/markdown';
 		hideDragCaret: () => void;
 		undo: () => void;
 		redo: () => void;
+		revealHeader: (text: string) => void;
 	} | null>(null);
 	let liveMode = $state(false);
 
@@ -161,7 +162,7 @@ import { processMarkdownHtml } from './utils/markdown';
 	});
 
 	// ui state
-	let tooltip = $state({ show: false, text: '', html: '', isFootnote: false, x: 0, y: 0, align: 'top' as 'top' | 'right' });
+	let tooltip = $state({ show: false, text: '', shortcut: '', html: '', isFootnote: false, x: 0, y: 0, align: 'top' as 'top' | 'right' | 'left' | 'below' });
 	let caretEl: HTMLElement;
 	let caretAbsoluteTop = 0;
 	let modalState = $state<{
@@ -422,7 +423,7 @@ import { processMarkdownHtml } from './utils/markdown';
 		}
 	}
 
-	async function loadMarkdown(filePath: string, options: { navigate?: boolean; skipTabManagement?: boolean } = {}) {
+	async function loadMarkdown(filePath: string, options: { navigate?: boolean; skipTabManagement?: boolean; preserveEditState?: boolean } = {}) {
 		showHome = false;
 		try {
 			if (options.navigate && tabManager.activeTab) {
@@ -445,10 +446,14 @@ import { processMarkdownHtml } from './utils/markdown';
 			const tab = tabManager.tabs.find((t) => t.id === activeId);
 
 			if (isMarkdown) {
-				if (tab) tab.isEditing = settings.startInEditor;
-				const html = (await invoke('open_markdown', { path: filePath })) as string;
+				if (tab && !options.preserveEditState) tab.isEditing = settings.startInEditor;
+				const [html, content] = await Promise.all([
+					invoke('open_markdown', { path: filePath }) as Promise<string>,
+					invoke('read_file_content', { path: filePath }) as Promise<string>
+				]);
 				const processedInfo = processMarkdownHtml(html, filePath, collapsedHeaders);
 				tabManager.updateTabContent(activeId, processedInfo);
+				tabManager.setTabRawContent(activeId, content);
 			} else {
 				if (tab) tab.isEditing = true;
 				const content = (await invoke('read_file_content', { path: filePath })) as string;
@@ -1082,7 +1087,7 @@ import { processMarkdownHtml } from './utils/markdown';
 			tab.isEditing = false;
 			if (tab.path !== '') {
 				tab.isDirty = false;
-				await loadMarkdown(tab.path);
+				await loadMarkdown(tab.path, { preserveEditState: true });
 			} else {
 				try {
 					const html = (await invoke('render_markdown', { content: tab.rawContent })) as string;
@@ -1386,7 +1391,7 @@ import { processMarkdownHtml } from './utils/markdown';
 					text = text.replace(/↩.*$/, '').trim(); // remove backrefs if any
 					if (text) {
 						const rect = anchor.getBoundingClientRect();
-						tooltip = { show: true, text, html: '', isFootnote: false, x: rect.left + rect.width / 2, y: rect.top - 8, align: 'top' };
+						tooltip = { show: true, text, shortcut: '', html: '', isFootnote: false, x: rect.left + rect.width / 2, y: rect.top - 8, align: 'top' };
 						return;
 					}
 				}
@@ -1407,7 +1412,7 @@ import { processMarkdownHtml } from './utils/markdown';
 					let fnHtml = clone.innerHTML.trim();
 					if (fnHtml) {
 						const rect = anchor.getBoundingClientRect();
-						tooltip = { show: true, text: '', html: fnHtml, isFootnote: true, x: rect.left + rect.width / 2, y: rect.top - 8, align: 'top' };
+						tooltip = { show: true, text: '', shortcut: '', html: fnHtml, isFootnote: true, x: rect.left + rect.width / 2, y: rect.top - 8, align: 'top' };
 						return;
 					}
 				}
@@ -1415,7 +1420,7 @@ import { processMarkdownHtml } from './utils/markdown';
 
 			if (anchor.href) {
 				const rect = anchor.getBoundingClientRect();
-				tooltip = { show: true, text: anchor.href, html: '', isFootnote: false, x: rect.left + rect.width / 2, y: rect.top - 8, align: 'top' };
+				tooltip = { show: true, text: anchor.href, shortcut: '', html: '', isFootnote: false, x: rect.left + rect.width / 2, y: rect.top - 8, align: 'top' };
 			}
 		}
 	}
@@ -1476,7 +1481,7 @@ import { processMarkdownHtml } from './utils/markdown';
 
 	$effect(() => {
 		const tab = tabManager.activeTab;
-		if (tab && tab.isSplit && tab.rawContent !== undefined) {
+		if (tab && (tab.isSplit || (isEditing && settings.showToc)) && tab.rawContent !== undefined) {
 			clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(() => {
 				invoke('render_markdown', { content: tab.rawContent })
@@ -2067,7 +2072,12 @@ import { processMarkdownHtml } from './utils/markdown';
 				style="zoom: {isEditing && !isSplit ? 1 : zoomLevel / 100}; --code-font: {settings.codeFont}, monospace; --code-font-size: {settings.codeFontSize}px; --highlight-color: {highlightColorMap[settings.highlightColor] || highlightColorMap.yellow};"
 				onwheel={handleWheel}
 				role="presentation">
-				<div class="layout-container" class:split={isSplit} class:editing={isEditing}>
+				<div class="layout-container" 
+					class:split={isSplit} 
+					class:editing={isEditing} 
+					class:has-pinned-toc={settings.pinnedToc && settings.showToc}
+					class:toc-on-left={settings.tocSide === 'left'}
+					class:toc-on-right={settings.tocSide === 'right'}>
 					<!-- Editor Pane -->
 					<div bind:this={editorPaneEl} class="pane editor-pane" class:active={isEditing || isSplit} style="flex: {isSplit ? tabManager.activeTab.splitRatio : isEditing ? 1 : 0}">
 						{#if isEditing || isSplit}
@@ -2106,39 +2116,9 @@ import { processMarkdownHtml } from './utils/markdown';
 						bind:clientWidth={viewerWidth}
 						class="pane viewer-pane" 
 						class:active={!isEditing || isSplit} 
-						style="flex: {isSplit ? 1 - tabManager.activeTab.splitRatio : !isEditing ? 1 : 0}">
-						{#if isMarkdown && !showHome}
-							<div class="top-fade-mask"></div>
-							<button 
-								class="toc-toggle-floating {settings.showToc ? 'expanded' : ''}" 
-								onclick={() => settings.toggleToc()}
-								aria-label="{settings.showToc ? 'Hide' : 'Show'} Table of Contents"
-								onmouseenter={(e) => {
-									const rect = e.currentTarget.getBoundingClientRect();
-									tooltip = { 
-										show: true, 
-										text: (settings.showToc ? 'Hide' : 'Show') + ' Table of Contents', 
-										html: '', 
-										isFootnote: false, 
-										x: rect.right + 8, 
-										y: rect.top + rect.height / 2,
-										align: 'right'
-									};
-								}}
-								onmouseleave={() => tooltip.show = false}>
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-									<polyline points="9 18 15 12 9 6"></polyline>
-								</svg>
-							</button>
-						{/if}
+						style="flex: {isSplit ? 1 - tabManager.activeTab.splitRatio : (!isEditing) ? 1 : 0}">
+						
 						<div class="viewer-content">
-							{#if settings.showToc}
-								<div class="toc-overlay-wrapper" class:is-overhanging={isOverhanging} transition:slide={{ axis: 'x', duration: 250 }}>
-									<Toc {markdownBody} {htmlContent} onBeforeJump={pushScrollHistory} {collapsedHeaders} ontoggleFold={toggleFold} oncopyref={(text) => { const tab = tabManager.activeTab; const fn = tab?.path ? tab.path.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') || '' : ''; invoke('clipboard_write_text', { text: fn ? `[[${fn}#${text}]]` : `#${text}` }); }} />
-								</div>
-							{/if}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 							<article
 								bind:this={markdownBody}
 								contenteditable="false"
@@ -2146,26 +2126,115 @@ import { processMarkdownHtml } from './utils/markdown';
 								bind:innerHTML={htmlContent}
 								onscroll={handleScroll}
 								onclick={handleLinkClick}
+								onkeydown={(e) => { if(e.key === 'Enter' || e.key === ' ') handleLinkClick(e as unknown as MouseEvent); }}
 								tabindex="-1"
 								style="outline: none; font-family: {settings.previewFont}, sans-serif; font-size: {settings.previewFontSize}px; flex: 1;">
 							</article>
 						</div>
 					</div>
+
+					<!-- Unified TOC Support -->
+					{#if isMarkdown && !showHome}
+						<div class="top-fade-mask" style="{settings.tocSide === 'left' ? 'left: 0;' : 'right: 0; left: auto;'}"></div>
+						<button 
+							class="toc-toggle-floating {settings.showToc ? 'expanded' : ''}" 
+							class:on-right={settings.tocSide === 'right'}
+							class:in-edit-mode={isEditing && !settings.showToc}
+							onclick={() => settings.toggleToc()}
+							aria-label="{settings.showToc ? 'Hide' : 'Show'} Table of Contents"
+							onmouseenter={(e) => {
+								const rect = e.currentTarget.getBoundingClientRect();
+								tooltip = { 
+									show: true, 
+									text: (settings.showToc ? 'Hide' : 'Show') + ' Table of Contents', 
+									shortcut: '',
+									html: '', 
+									isFootnote: false, 
+									x: settings.tocSide === 'left' ? rect.right + 8 : rect.left - 8, 
+									y: rect.top + rect.height / 2,
+									align: settings.tocSide === 'left' ? 'right' : 'left'
+								};
+							}}
+							onmouseleave={() => tooltip.show = false}>
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="9 18 15 12 9 6"></polyline>
+							</svg>
+						</button>
+
+						{#if settings.showToc}
+							<div 
+								transition:fly={{ x: settings.tocSide === 'left' ? -240 : 240, duration: 300, opacity: 1, easing: cubicOut }}
+								class="toc-overlay-wrapper" 
+								class:is-overhanging={isOverhanging} 
+								class:is-pinned={settings.pinnedToc}
+								class:on-right={settings.tocSide === 'right'}>
+								<Toc 
+										{markdownBody} 
+										{htmlContent} 
+										onBeforeJump={pushScrollHistory} 
+										{collapsedHeaders} 
+										ontoggleFold={toggleFold} 
+										oncopyref={(text: string) => { const tab = tabManager.activeTab; const fn = tab?.path ? tab.path.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') || '' : ''; invoke('clipboard_write_text', { text: fn ? `[[${fn}#${text}]]` : `#${text}` }); }}
+										onjump={(id: string, text: string) => {
+											if (isEditing && editorPane) {
+												editorPane.revealHeader(text);
+											}
+										}}
+										oncontext={(e, item) => {
+											docContextMenu = {
+												show: true,
+												x: e.clientX,
+												y: e.clientY,
+												items: [
+													{ 
+														label: 'Copy Reference', 
+														onClick: () => {
+															const tab = tabManager.activeTab;
+															const fn = tab?.path ? tab.path.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') || '' : '';
+															invoke('clipboard_write_text', { text: fn ? `[[${fn}#${item.text}]]` : `#${item.text}` });
+															docContextMenu.show = false;
+														} 
+													}
+												]
+											};
+										}}
+										onshowTooltip={(e, text, shortcut, align) => {
+											const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+											tooltip = {
+												show: true,
+												text,
+												shortcut: shortcut || '',
+												html: '',
+												isFootnote: false,
+												x: align === 'right' ? rect.right + 8 : (align as any === 'left' ? rect.left - 8 : rect.left + rect.width / 2),
+												y: align === 'right' || align as any === 'left' ? rect.top + rect.height / 2 : (align === 'below' ? rect.bottom + 8 : rect.top - 8),
+												align: align || 'top'
+											};
+										}}
+										onhideTooltip={() => tooltip.show = false}
+								/>
+							</div>
+						{/if}
+					{/if}
 				</div>
 			</div>
 	{:else}
 		<HomePage {recentFiles} onselectFile={selectFile} onloadFile={loadMarkdown} onremoveRecentFile={removeRecentFile} onnewFile={handleNewFile} />
 	{/if}
 
-	{#if tooltip.show}
-		<div class="tooltip align-{tooltip.align}" class:footnote-tooltip={tooltip.isFootnote} style="left: {tooltip.x}px; top: {tooltip.y}px;">
-			{#if tooltip.isFootnote}
-				{@html tooltip.html}
-			{:else}
-				{tooltip.text}
+	<div 
+		class="tooltip align-{tooltip.align} {tooltip.show ? 'visible' : ''}" 
+		class:footnote-tooltip={tooltip.isFootnote} 
+		style="left: {tooltip.x}px; top: {tooltip.y}px;">
+		{#if tooltip.isFootnote}
+			{@html tooltip.html}
+		{:else}
+			<span class="tooltip-text">{tooltip.text}</span>
+			{#if tooltip.shortcut}
+				<span class="tooltip-shortcut">{tooltip.shortcut}</span>
 			{/if}
-		</div>
-	{/if}
+		{/if}
+	</div>
 
 	<Modal
 		show={modalState.show}
@@ -2264,8 +2333,7 @@ import { processMarkdownHtml } from './utils/markdown';
 		max-width: 100%;
 	}
 
-	:global(.markdown-body.toc-active) {
-	}
+
 
 	@keyframes slideIn {
 		from {
@@ -2310,33 +2378,74 @@ import { processMarkdownHtml } from './utils/markdown';
 
 	.tooltip {
 		position: fixed;
-		background: var(--color-canvas-default);
+		background: var(--color-canvas-overlay);
 		color: var(--color-fg-default);
-		padding: 6px 10px;
-		border-radius: 4px;
-		font-size: 12px;
+		padding: 4px 8px;
+		border-radius: 6px;
+		font-size: 11px;
 		pointer-events: none;
-		z-index: 10000;
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		z-index: 10007;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 		border: 1px solid var(--color-border-default);
-		font-family: var(--win-font);
+		font-family: var(--win-font), 'Segoe UI', sans-serif;
 		white-space: nowrap;
 		max-width: 400px;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		text-overflow: ellipsis;
-		transform: translate(-50%, -100%);
-		transition: opacity 0.15s ease-out;
+		transform: translateX(-50%) translateY(calc(-100% + 4px));
+		opacity: 0;
+		transition: 
+			opacity 0.15s ease,
+			transform 0.15s ease,
+			left 0.15s ease,
+			top 0.15s ease;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.tooltip.visible {
 		opacity: 1;
+		transform: translateX(-50%) translateY(-100%);
+	}
+
+	.tooltip.align-below {
+		transform: translateX(-50%) translateY(-4px);
+	}
+
+	.tooltip.align-below.visible {
+		transform: translateX(-50%) translateY(0);
+	}
+
+	.tooltip-text {
+		display: block;
+	}
+
+	.tooltip-shortcut {
+		color: var(--color-fg-muted);
+		font-size: 10px;
+		font-family: inherit;
 	}
 
 	.tooltip.align-right {
-		transform: translateY(-50%);
+		transform: translateX(4px) translateY(-50%);
 	}
 
-	.tooltip.align-right::after {
-		display: none;
+	.tooltip.align-right.visible {
+		transform: translateX(0) translateY(-50%);
+		align-items: flex-start;
 	}
+
+	.tooltip.align-left {
+		transform: translateX(calc(-100% - 4px)) translateY(-50%);
+	}
+
+	.tooltip.align-left.visible {
+		transform: translateX(-100%) translateY(-50%);
+		align-items: flex-end;
+	}
+
 
 	.tooltip.footnote-tooltip {
 		white-space: normal;
@@ -2345,6 +2454,13 @@ import { processMarkdownHtml } from './utils/markdown';
 		line-height: 1.5;
 		padding: 10px 14px;
 		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+		transform: translate(-50%, calc(-100% + 4px));
+		margin-top: -8px;
+		display: block; /* reset flex for footnotes */
+	}
+
+	.tooltip.footnote-tooltip.visible {
+		transform: translate(-50%, -100%);
 	}
 	
 	:global(.tooltip.footnote-tooltip p) {
@@ -2356,7 +2472,7 @@ import { processMarkdownHtml } from './utils/markdown';
         margin-top: 8px;
     }
 
-	.tooltip::after {
+	.tooltip.footnote-tooltip::after {
 		content: '';
 		position: absolute;
 		bottom: -6px;
@@ -2364,7 +2480,7 @@ import { processMarkdownHtml } from './utils/markdown';
 		transform: translateX(-50%);
 		border-left: 6px solid transparent;
 		border-right: 6px solid transparent;
-		border-top: 6px solid var(--color-canvas-default);
+		border-top: 6px solid var(--color-canvas-overlay);
 	}
 
 
@@ -2596,28 +2712,69 @@ import { processMarkdownHtml } from './utils/markdown';
 
 	.toc-overlay-wrapper {
 		position: absolute;
-		top: 0;
+		top: 36px;
 		left: 0;
 		bottom: 0;
 		z-index: 1000;
-		background-color: color-mix(in srgb, var(--color-canvas-default), transparent 10%);
-		backdrop-filter: blur(5px);
-		-webkit-backdrop-filter: blur(5px);
-		height: 100%;
+		height: calc(100% - 36px);
+		background-color: var(--color-canvas-default);
 		border-right: 1px solid transparent;
+		border-left: 1px solid transparent;
 		box-shadow: 10px 0 30px rgba(0, 0, 0, 0);
-		transition: box-shadow 0.3s ease, border-color 0.3s ease;
+		transition: box-shadow 0.3s ease, border-color 0.3s ease, left 0.3s ease, right 0.3s ease;
+		order: -1;
 	}
 
-	.toc-overlay-wrapper.is-overhanging {
+	.toc-overlay-wrapper.is-pinned {
+		position: relative;
+		top: 0 !important;
+		height: 100%;
+		z-index: 10;
+		background-color: transparent;
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+		box-shadow: none !important;
+	}
+	.layout-container.editing.has-pinned-toc.toc-on-left .editor-pane {
+		padding-left: 40px;
+	}
+	
+	.layout-container.editing.has-pinned-toc.toc-on-right .editor-pane {
+		padding-right: 40px;
+	}
+
+	.editor-pane {
+		transition: padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	.toc-overlay-wrapper.on-right {
+		left: auto;
+		right: 0;
+		order: 2;
+	}
+
+	.toc-overlay-wrapper.is-pinned.on-right {
+		border-left-color: var(--color-border-default);
+	}
+	
+	.toc-overlay-wrapper.is-pinned:not(.on-right) {
+		border-right-color: var(--color-border-default);
+	}
+
+	.toc-overlay-wrapper.is-overhanging:not(.is-pinned) {
 		border-right-color: var(--color-border-default);
 		box-shadow: 10px 0 30px rgba(0, 0, 0, 0.12);
+	}
+	
+	.toc-overlay-wrapper.is-overhanging.on-right:not(.is-pinned) {
+		border-left-color: var(--color-border-default);
+		box-shadow: -10px 0 30px rgba(0, 0, 0, 0.12);
 	}
 
 	.toc-toggle-floating {
 		position: absolute;
-		top: 12px;
-		left: 12px;
+		top: 48px;
+		left: 8px;
 		width: 28px;
 		height: 28px;
 		display: flex;
@@ -2625,7 +2782,7 @@ import { processMarkdownHtml } from './utils/markdown';
 		justify-content: center;
 		background-color: transparent;
 		border: none;
-		border-radius: 6px;
+		border-radius: 4px;
 		color: var(--color-fg-muted);
 		cursor: pointer;
 		z-index: 1001;
@@ -2635,22 +2792,26 @@ import { processMarkdownHtml } from './utils/markdown';
 			color 0.2s ease,
 			opacity 0.2s ease,
 			transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-		opacity: 0.3;
+		opacity: 0.6;
 		padding: 0;
 	}
 
 	.toc-toggle-floating.expanded {
-		left: 28px;
+		left: 24px;
 	}
 
-	.viewer-pane:hover .toc-toggle-floating, 
+	.toc-toggle-floating.on-right {
+		left: auto;
+		right: 8px;
+	}
+
+	.toc-toggle-floating.on-right.expanded {
+		right: 24px;
+	}
+
+	.layout-container:hover .toc-toggle-floating,
 	.toc-toggle-floating:hover {
 		opacity: 1;
-	}
-
-	.toc-toggle-floating:hover {
-		background-color: var(--color-canvas-subtle);
-		color: var(--color-fg-default);
 	}
 
 	.toc-toggle-floating:active {
@@ -2661,8 +2822,65 @@ import { processMarkdownHtml } from './utils/markdown';
 		transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 		transform: rotate(0deg);
 	}
+	
+	.toc-toggle-floating.on-right svg {
+		transform: rotate(180deg);
+	}
 
 	.toc-toggle-floating.expanded svg {
 		transform: rotate(180deg);
+	}
+	
+	.toc-toggle-floating.on-right.expanded svg {
+		transform: rotate(0deg);
+	}
+
+	.layout-container {
+		transition: padding 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.layout-container.has-pinned-toc.toc-on-left {
+		padding-left: 240px;
+	}
+
+	.layout-container.has-pinned-toc.toc-on-right {
+		padding-right: 240px;
+	}
+
+	.toc-overlay-wrapper {
+		width: 240px;
+	}
+
+	.toc-overlay-wrapper.is-pinned {
+		position: absolute; /* Keep it absolute but it will stay in the padded area */
+		top: 36px !important;
+		left: 0;
+		height: calc(100% - 36px);
+		background-color: var(--color-canvas-default);
+		border-right: 1px solid var(--color-border-default);
+	}
+
+	.toc-overlay-wrapper.is-pinned.on-right {
+		left: auto;
+		right: 0;
+		border-right: none;
+		border-left: 1px solid var(--color-border-default);
+	}
+
+	.layout-container.editing .toc-overlay-wrapper:not(.on-right) {
+		border-right-color: var(--color-border-default);
+	}
+
+	.layout-container.editing .toc-overlay-wrapper.on-right {
+		border-left-color: var(--color-border-default);
+	}
+
+	.toc-toggle-floating.in-edit-mode:not(.expanded) {
+		background-color: var(--color-canvas-default);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		border: 1px solid var(--color-border-default);
+		opacity: 0.9;
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
 	}
 </style>

@@ -489,7 +489,8 @@ body {
 .markdown-body h3,
 .markdown-body h4,
 .markdown-body h5,
-.markdown-body h6 {
+.markdown-body h6,
+.foldable-header {
 	margin-top: 24px;
 	margin-bottom: 16px;
 	font-weight: 600;
@@ -511,17 +512,18 @@ body {
 	border-radius: 4px;
 	flex-shrink: 0;
 	position: absolute;
-	left: -1.2em;
-	top: 0.05em;
+	right: 100%;
+	margin-right: 8px;
+	top: 0.1em;
 	user-select: none;
 	-webkit-user-select: none;
+	z-index: 10;
 }
-.markdown-body h1:hover .header-fold-icon,
-.markdown-body h2:hover .header-fold-icon,
-.markdown-body h3:hover .header-fold-icon,
-.markdown-body h4:hover .header-fold-icon,
-.markdown-body h5:hover .header-fold-icon,
-.markdown-body h6:hover .header-fold-icon,
+.foldable-header {
+	position: relative;
+	overflow: visible !important;
+}
+.markdown-body .foldable-header:hover .header-fold-icon,
 .markdown-body .is-collapsed .header-fold-icon {
 	opacity: 0.5; /* show on hover or when collapsed */
 }
@@ -541,13 +543,18 @@ body {
 	grid-template-rows: 1fr;
 	transition: grid-template-rows 0.25s ease, opacity 0.25s ease;
 	opacity: 1;
+	overflow: visible; /* show carets in the gutter when expanded */
 }
 .foldable-content-wrapper.is-collapsed, .markdown-alert-content.is-collapsed {
 	grid-template-rows: 0fr;
 	opacity: 0;
+	overflow: hidden; /* must hide when collapsed */
 }
 .content-inner {
 	min-height: 0;
+	overflow: visible; /* show carets in the gutter when expanded */
+}
+.is-collapsed .content-inner {
 	overflow: hidden;
 }
 
@@ -562,9 +569,7 @@ body {
 .callout-foldable.is-collapsed .callout-fold-icon {
 	transform: rotate(-90deg);
 }
-.foldable-header {
-	display: flex; /* Ensure it stays flex */
-}
+
 
 .markdown-body h2 {
 	font-weight: 600;

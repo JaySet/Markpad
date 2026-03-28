@@ -1,13 +1,17 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition';
+	import { settings } from '../stores/settings.svelte.js';
 
-	let { markdownBody, htmlContent, onBeforeJump, collapsedHeaders, ontoggleFold, oncopyref } = $props<{
+	let { markdownBody, htmlContent, onBeforeJump, collapsedHeaders, ontoggleFold, oncopyref, oncontext, onjump, onshowTooltip, onhideTooltip } = $props<{
 		markdownBody: HTMLElement | null;
 		htmlContent: string;
 		onBeforeJump?: () => void;
 		collapsedHeaders?: Set<string>;
 		ontoggleFold?: (id: string) => void;
 		oncopyref?: (text: string) => void;
+		oncontext?: (e: MouseEvent, item: TocItem) => void;
+		onjump?: (id: string, text: string) => void;
+		onshowTooltip?: (e: MouseEvent, text: string, shortcut?: string, align?: 'top' | 'right' | 'left' | 'below') => void;
+		onhideTooltip?: () => void;
 	}>();
 
 	interface TocItem {
@@ -70,9 +74,14 @@
 				}
 			}
 
-			items = result;
+			const currentFingerprint = items.map(i => `${i.id}-${i.text}-${i.level}`).join('|');
+			const newFingerprint = result.map(i => `${i.id}-${i.text}-${i.level}`).join('|');
+			
+			if (currentFingerprint !== newFingerprint) {
+				items = result;
+			}
 		} else {
-			items = [];
+			if (items.length > 0) items = [];
 		}
 	});
 
@@ -165,6 +174,9 @@
 		}
 	});
 
+	import { slide } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+
 	function jumpTo(id: string) {
 		const el = markdownBody?.querySelector(`[id="${CSS.escape(id)}"]`) as HTMLElement | null;
 		if (el && markdownBody) {
@@ -173,6 +185,9 @@
 			clickLock = id;
 			activeId = id;
 			scrollTocIntoView();
+			
+			const item = items.find(i => i.id === id);
+			if (item) onjump?.(id, item.text);
 
 			// highlight element persistently until scroll
 			if (activeTargetEl) activeTargetEl.classList.remove('toc-target-active');
@@ -192,10 +207,51 @@
 </script>
 
 <div class="toc-container" bind:this={tocContainer}>
+	<div class="toc-header" class:on-right={settings.tocSide === 'right'}>
+		<button 
+			class="toc-header-btn {settings.pinnedToc ? 'active' : ''}" 
+			onclick={() => { settings.togglePinnedToc(); onhideTooltip?.(); }}
+			onmouseenter={(e) => onshowTooltip?.(e, settings.pinnedToc ? "Undock" : "Dock", undefined, 'below')}
+			onmouseleave={() => onhideTooltip?.()}
+			aria-label={settings.pinnedToc ? "Undock Table of Contents" : "Dock Table of Contents"}>
+			{#if settings.tocSide === 'left'}
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<rect width="18" height="18" x="3" y="3" rx="2" />
+					<path d="M9 3v18" />
+					{#if !settings.pinnedToc}
+						<path d="m14 9-3 3 3 3" />
+					{/if}
+				</svg>
+			{:else}
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<rect width="18" height="18" x="3" y="3" rx="2" />
+					<path d="M15 3v18" />
+					{#if !settings.pinnedToc}
+						<path d="m10 9 3 3-3 3" />
+					{/if}
+				</svg>
+			{/if}
+		</button>
+		<button 
+			class="toc-header-btn" 
+			onclick={() => { settings.toggleTocSide(); onhideTooltip?.(); }}
+			onmouseenter={(e) => onshowTooltip?.(e, "Switch side", undefined, 'below')}
+			onmouseleave={() => onhideTooltip?.()}
+			aria-label="Switch side">
+			<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+				<path d="m18 8 4 4-4 4"></path>
+				<path d="M2 12h20"></path>
+				<path d="m6 8-4 4 4 4"></path>
+			</svg>
+		</button>
+	</div>
 	{#if visibleItems.length > 0}
 		<ul class="toc-list">
 			{#each visibleItems as item (item.id)}
-				<li class="toc-item {item.isBlock ? 'block-item' : `level-${item.level}`}" transition:slide={{ duration: 200 }}>
+				<li 
+					transition:slide={{ duration: 240, easing: cubicOut }}
+					class="toc-item {item.isBlock ? 'block-item' : `level-${item.level}`}" 
+					style="padding-left: {(Math.max(1, item.level || 2) - 1) * 10 + 8}px !important">
 					{#if item.isBlock}
 					<button
 						class="toc-link toc-block {activeId === item.id ? 'active' : ''}"
@@ -208,7 +264,7 @@
 						{item.text}
 					</button>
 					{:else}
-						<div class="toc-link-wrapper">
+						<div class="toc-link-wrapper level-{item.level}">
 							<button aria-label="Toggle fold" class="toc-fold-btn {collapsedHeaders?.has(item.id || item.text || '') ? 'collapsed' : ''}" style={item.hasChildren ? '' : 'visibility: hidden'} onclick={(e) => { e.stopPropagation(); ontoggleFold?.(item.id || item.text || ''); }}>
 								<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
 							</button>
@@ -216,7 +272,7 @@
 								class="toc-link {activeId === item.id ? 'active' : ''}"
 								data-id={item.id}
 								onclick={() => jumpTo(item.id)}
-								oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); oncopyref?.(item.text); }}
+								oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); oncontext ? oncontext(e, item) : oncopyref?.(item.text); }}
 								use:checkTruncation>
 								{item.text}
 							</button>
@@ -244,20 +300,55 @@
 	}
 
 	.toc-container::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		left: 12px; /* Avoid scrollbar on the left (rtl) */
-		right: 0;
-		height: 52px;
-		background: linear-gradient(to bottom, var(--color-canvas-default) 40%, transparent 100%);
-		pointer-events: none;
-		z-index: 50;
+		display: none;
+	}
+
+	.toc-header {
+		display: flex;
+		justify-content: flex-end;
+		gap: 4px;
+		padding: 10px 14px;
+		z-index: 60;
+		flex-shrink: 0;
+	}
+
+	.toc-header.on-right {
+		justify-content: flex-start;
+	}
+
+	.toc-header-btn {
+		background: none;
+		border: none;
+		padding: 6px;
+		cursor: pointer;
+		color: var(--color-fg-muted);
+		opacity: 0.7;
+		border-radius: 4px;
+		transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: auto;
+	}
+
+	.toc-container:hover .toc-header-btn {
+		opacity: 0.8;
+	}
+
+	.toc-header-btn:hover {
+		opacity: 1 !important;
+		background-color: var(--color-canvas-subtle);
+		color: var(--color-fg-default);
+	}
+
+	.toc-header-btn.active {
+		opacity: 0.8;
+		background-color: var(--color-canvas-subtle);
 	}
 
 	.toc-list {
 		margin: 0;
-		padding: 44px 0 16px;
+		padding: 0 0 16px;
 		list-style: none;
 		overflow-y: auto;
 		overflow-x: hidden;
@@ -266,6 +357,8 @@
 		direction: rtl; /* move scrollbar to left */
 		display: flex;
 		flex-direction: column;
+		-webkit-mask-image: linear-gradient(to bottom, transparent, black 8px, black calc(100% - 20px), transparent);
+		mask-image: linear-gradient(to bottom, transparent, black 8px, black calc(100% - 20px), transparent);
 	}
 
 	.toc-empty {
@@ -300,7 +393,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease;
+		transition: transform 0.2s ease, opacity 0.2s ease;
 		border-radius: 4px;
 		flex-shrink: 0;
 		flex-grow: 0;
@@ -316,7 +409,6 @@
 
 	.toc-fold-btn:hover {
 		opacity: 1 !important;
-		background-color: var(--color-canvas-subtle);
 	}
 
 	.toc-fold-btn.collapsed {
@@ -368,13 +460,6 @@
 		flex-shrink: 0;
 		opacity: 0.4;
 	}
-
-	.level-1 .toc-link-wrapper { padding-left: 2px; }
-	.level-2 .toc-link-wrapper { padding-left: 14px; }
-	.level-3 .toc-link-wrapper { padding-left: 26px; }
-	.level-4 .toc-link-wrapper { padding-left: 38px; }
-	.level-5 .toc-link-wrapper { padding-left: 50px; }
-	.level-6 .toc-link-wrapper { padding-left: 62px; }
 
 	.level-1 .toc-link { font-weight: 500; font-size: 13px; }
 	.level-3 .toc-link { font-size: 12.5px; }

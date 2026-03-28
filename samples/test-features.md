@@ -92,7 +92,7 @@ Internal links: [[#important]] jumps to the first paragraph above.
 
 - [x] Read ==highlighted== text in task items
 - [x] Browse footnotes[^taskfn] while working
-- [ ] Navigate via **block IDs** in the TOC
+- [x] Navigate via **block IDs** in the TOC
 
 [^taskfn]: Footnotes work inside task descriptions too.
 
