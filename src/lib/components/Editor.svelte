@@ -604,10 +604,11 @@
 				const last = managedImages[managedImages.length - 1];
 				if (!currentContent.includes(last.embed)) {
 					managedImages.pop();
-						const imgPath = `${last.parentDir}/${settings.imageDirectory}/${last.filename}`;
+						const imgDirName = settings.imageDirectory || "img";
+						const imgPath = `${last.parentDir}/${imgDirName}/${last.filename}`;
 						invoke("delete_file", { path: imgPath })
 							.then(() => {
-								invoke("cleanup_empty_img_dir", { parentDir: last.parentDir, imageDirectory: settings.imageDirectory });
+								invoke("cleanup_empty_img_dir", { parentDir: last.parentDir, imageDirectory: imgDirName });
 							})
 							.catch(console.error);
 				}
@@ -635,13 +636,14 @@
 						tab.path.lastIndexOf("/"),
 					);
 					const parentDir = tab.path.substring(0, lastSlash);
+					const imgDirName = settings.imageDirectory || "img";
 
 					try {
 						const [currentEntries, imgEntries] = await Promise.all([
 							invoke("list_directory_contents", { path: parentDir })
 								.then((r) => r as string[])
 								.catch(() => []),
-							invoke("list_directory_contents", { path: parentDir + "/img" })
+							invoke("list_directory_contents", { path: `${parentDir}/${imgDirName}` })
 								.then((r) => r as string[])
 								.catch(() => []),
 						]);
@@ -664,11 +666,11 @@
 								range,
 							})),
 							...imgEntries.map((e) => ({
-								label: `img/${e}`,
+								label: `${imgDirName}/${e}`,
 								kind: e.endsWith("/")
 									? monaco.languages.CompletionItemKind.Folder
 									: monaco.languages.CompletionItemKind.File,
-								insertText: `img/${e}`,
+								insertText: `${imgDirName}/${e}`,
 								range,
 							})),
 						];
@@ -701,7 +703,7 @@
 		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, async () => {
 			try {
 				// check for image in clipboard via Rust
-				const base64Image = await invoke("clipboard_read_image", { macos_image_scaling: settings.macosImageScaling }).catch(() => null) as string | null;
+				const base64Image = await invoke("clipboard_read_image", { macosImageScaling: settings.macosImageScaling }).catch(() => null) as string | null;
 				if (base64Image && tabManager.activeTab?.path) {
 					const ext = "png"; // output of Rust command is always PNG
 					const filename = `paste_${Date.now()}.${ext}`;
@@ -710,13 +712,15 @@
 					const dirMatch = tabPath.match(/^(.*)[/\\][^/\\]+$/);
 					if (dirMatch) {
 						const parentDir = dirMatch[1];
+						const imgDirName = settings.imageDirectory || "img";
 						const relPath = (await invoke("save_image", {
 							parentDir,
 							filename,
 							base64Data: base64Image,
-							imageDirectory: settings.imageDirectory,
+							imageDirectory: imgDirName,
 						})) as string;
-						const escapedPath = relPath.replace(/ /g, "%20");
+						// Remove leading slash if imageDirectory was empty, to ensure relative path
+						const escapedPath = relPath.replace(/ /g, "%20").replace(/^\//, "");
 						const embed = `![alt](${escapedPath})`;
 
 						const position = editor.getPosition();
@@ -1008,12 +1012,14 @@
 		const parentDir = match[1];
 
 		try {
+			const imgDirName = settings.imageDirectory || "img";
 			const relPath = (await invoke("copy_file_to_img", {
 				srcPath: path,
 				parentDir,
-				imageDirectory: settings.imageDirectory,
+				imageDirectory: imgDirName,
 			})) as string;
-			const escapedPath = relPath.replace(/ /g, "%20");
+			// Remove leading slash if imageDirectory was empty
+			const escapedPath = relPath.replace(/ /g, "%20").replace(/^\//, "");
 			const embed = `![alt](${escapedPath})`;
 
 			editor.executeEdits(

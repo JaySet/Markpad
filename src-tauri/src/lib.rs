@@ -630,7 +630,13 @@ fn save_image(parent_dir: String, filename: String, base64_data: String, image_d
 
     fs::write(&file_path, bytes).map_err(|e| e.to_string())?;
 
-    Ok(format!("{}/{}", image_directory, filename))
+    let rel_path = if image_directory.is_empty() {
+        filename
+    } else {
+        format!("{}/{}", image_directory, filename)
+    };
+
+    Ok(rel_path)
 }
 
 #[tauri::command]
@@ -662,7 +668,13 @@ fn copy_file_to_img(src_path: String, parent_dir: String, image_directory: Strin
     let final_dest = img_dir.join(&dest_name);
     fs::copy(src, &final_dest).map_err(|e| e.to_string())?;
 
-    Ok(format!("{}/{}", image_directory, dest_name))
+    let rel_path = if image_directory.is_empty() {
+        dest_name
+    } else {
+        format!("{}/{}", image_directory, dest_name)
+    };
+
+    Ok(rel_path)
 }
 
 #[tauri::command]
