@@ -986,7 +986,13 @@ import { t } from './utils/i18n.js';
         if (mermaidDiv) {
             const svg = mermaidDiv.querySelector('svg');
             if (svg) {
-                zoomData = { html: svg.outerHTML };
+                // clone and strip fixed dimensions so viewBox governs scaling
+                const clone = svg.cloneNode(true) as SVGElement;
+                clone.removeAttribute('width');
+                clone.removeAttribute('height');
+                clone.style.width = '';
+                clone.style.height = '';
+                zoomData = { html: clone.outerHTML };
                 return;
             }
         }
