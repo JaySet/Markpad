@@ -77,11 +77,27 @@ import { t } from './utils/i18n.js';
 		undo: () => void;
 		redo: () => void;
 		revealHeader: (text: string) => void;
+		triggerFind: () => void;
 	} | null>(null);
 	let liveMode = $state(false);
 
 	let findOpen = $state(false);
 	let findBar = $state<{ reapply: () => void; clearHighlights: () => void } | null>(null);
+
+	// Decide where Cmd/Ctrl+F should land based on what's visible and where
+	// focus is. Used by both the JS keydown handler (Win/Linux + macOS in-page
+	// shortcut) and the macOS native menu listener (which fires Cmd+F via the
+	// Edit menu accelerator and bypasses the JS keydown path).
+	function triggerFindAction() {
+		const active = document.activeElement as Node | null;
+		const editorHasFocus = !!editorPaneEl && !!active && editorPaneEl.contains(active);
+		const previewVisible = !isEditing || !!tabManager.activeTab?.isSplit;
+		if (editorHasFocus || !previewVisible) {
+			editorPane?.triggerFind?.();
+		} else if (markdownBody) {
+			findOpen = true;
+		}
+	}
 
 	let isDragging = $state(false);
 	let dragTarget = $state<'editor' | 'preview' | null>(null);
@@ -2084,15 +2100,16 @@ import { t } from './utils/i18n.js';
 			e.preventDefault();
 			showSettings = !showSettings;
 		}
-		// Ctrl/Cmd+F: open the preview find bar, but only when the editor
-		// (Monaco) doesn't have focus — Monaco ships its own native find
-		// widget and we don't want to fight it in Edit/Split mode.
+		// Ctrl/Cmd+F: route to either Monaco's built-in find or the preview
+		// FindBar depending on focus and which panes are visible. We only
+		// preventDefault when we actually take the action ourselves —
+		// otherwise we let Monaco's own keybinding fire.
 		if (cmdOrCtrl && !e.shiftKey && !e.altKey && key === 'f') {
 			const active = document.activeElement as Node | null;
 			const editorHasFocus = !!editorPaneEl && !!active && editorPaneEl.contains(active);
-			if (!editorHasFocus && markdownBody) {
+			if (!editorHasFocus) {
 				e.preventDefault();
-				findOpen = true;
+				triggerFindAction();
 			}
 		}
 	}
@@ -2311,7 +2328,7 @@ import { t } from './utils/i18n.js';
 			);
 			unlisteners.push(
 				await listen('menu-edit-find', () => {
-					if (markdownBody) findOpen = true;
+					triggerFindAction();
 				}),
 			);
 			unlisteners.push(
@@ -2608,7 +2625,7 @@ import { t } from './utils/i18n.js';
 		{theme}
 		onSetTheme={(t) => (theme = t)}
 		onopenSettings={() => (showSettings = true)}
-		onfind={() => { if (markdownBody) findOpen = true; }}
+		onfind={triggerFindAction}
 		oncloseTab={closeTabAndWindowIfLast} />
 	<div class="loading-screen">
 		<svg class="spinner" viewBox="0 0 50 50">
@@ -2652,7 +2669,7 @@ import { t } from './utils/i18n.js';
 		{theme}
 		onSetTheme={(t) => (theme = t)}
 		onopenSettings={() => (showSettings = true)}
-		onfind={() => { if (markdownBody) findOpen = true; }}
+		onfind={triggerFindAction}
 		oncloseTab={closeTabAndWindowIfLast} />
 
 	<Settings show={showSettings} {theme} onSetTheme={(t) => (theme = t)} onclose={() => (showSettings = false)} />

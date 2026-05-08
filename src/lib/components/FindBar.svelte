@@ -65,10 +65,6 @@
 		}
 	}
 
-	function escapeForDisplay(s: string): string {
-		return s;
-	}
-
 	function findInTextNode(text: string, needle: string): number[] {
 		// returns array of start indices for non-overlapping matches
 		const indices: number[] = [];
@@ -119,40 +115,46 @@
 			},
 		});
 
-		const targets: Text[] = [];
-		let node: Node | null;
-		while ((node = walker.nextNode())) targets.push(node as Text);
-
 		let total = 0;
 		let hitCap = false;
-		const created: HTMLElement[] = [];
 
-		outer: for (const textNode of targets) {
+		// Walk and process in a single pass. We advance the walker BEFORE
+		// mutating each text node so its internal currentNode never points
+		// at a detached node — replaceChild on the previous text node would
+		// otherwise leave the walker in an undefined state.
+		let textNode = walker.nextNode() as Text | null;
+		while (textNode) {
+			const next = walker.nextNode() as Text | null;
+
 			const text = textNode.nodeValue || '';
 			const indices = findInTextNode(text, query);
-			if (indices.length === 0) continue;
-
-			const parent = textNode.parentNode;
-			if (!parent) continue;
-			const doc = textNode.ownerDocument || document;
-			const frag = doc.createDocumentFragment();
-			let cursor = 0;
-			for (const i of indices) {
-				if (total >= MAX_MATCHES) {
-					hitCap = true;
-					break outer;
+			if (indices.length > 0) {
+				const parent = textNode.parentNode;
+				if (parent) {
+					const doc = textNode.ownerDocument || document;
+					const frag = doc.createDocumentFragment();
+					let cursor = 0;
+					let breakOut = false;
+					for (const i of indices) {
+						if (total >= MAX_MATCHES) {
+							hitCap = true;
+							breakOut = true;
+							break;
+						}
+						if (i > cursor) frag.appendChild(doc.createTextNode(text.slice(cursor, i)));
+						const mark = doc.createElement('mark');
+						mark.className = FIND_MARK_CLASS;
+						mark.textContent = text.slice(i, i + query.length);
+						frag.appendChild(mark);
+						cursor = i + query.length;
+						total++;
+					}
+					if (cursor < text.length) frag.appendChild(doc.createTextNode(text.slice(cursor)));
+					parent.replaceChild(frag, textNode);
+					if (breakOut) break;
 				}
-				if (i > cursor) frag.appendChild(doc.createTextNode(text.slice(cursor, i)));
-				const mark = doc.createElement('mark');
-				mark.className = FIND_MARK_CLASS;
-				mark.textContent = text.slice(i, i + query.length);
-				frag.appendChild(mark);
-				created.push(mark);
-				cursor = i + query.length;
-				total++;
 			}
-			if (cursor < text.length) frag.appendChild(doc.createTextNode(text.slice(cursor)));
-			parent.replaceChild(frag, textNode);
+			textNode = next;
 		}
 
 		matchCount = total;
@@ -197,10 +199,21 @@
 		setActive(activeIndex - 1);
 	}
 
+	function cancelPendingApply() {
+		if (debounceTimer) {
+			clearTimeout(debounceTimer);
+			debounceTimer = null;
+		}
+	}
+
 	function scheduleApply() {
-		if (debounceTimer) clearTimeout(debounceTimer);
+		cancelPendingApply();
 		debounceTimer = setTimeout(() => {
 			debounceTimer = null;
+			// Guard against a stale timer firing after the bar has closed
+			// (e.g. parent flips `open` to false on tab switch without
+			// going through close()).
+			if (!open) return;
 			applyHighlights();
 		}, DEBOUNCE_MS);
 	}
@@ -212,6 +225,7 @@
 	}
 
 	function close() {
+		cancelPendingApply();
 		clearHighlights();
 		query = '';
 		matchCount = 0;
@@ -232,6 +246,10 @@
 
 	$effect(() => {
 		if (!open) {
+			// External close (e.g. parent flipping `open` on tab switch).
+			// Drop any pending debounced re-search so it can't fire after
+			// we've already cleared the DOM.
+			cancelPendingApply();
 			clearHighlights();
 			return;
 		}

@@ -306,7 +306,8 @@ export const translations: Record<LanguageCode, Translation> = {
             showTableOfContents: 'Show Table of Contents',
             hideTableOfContents: 'Hide Table of Contents',
             newTab: 'New Tab',
-            close: 'Close'
+            close: 'Close',
+            find: 'Find'
         },
         toc: {
             noHeadingsFound: 'No headings found'

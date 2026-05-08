@@ -564,8 +564,8 @@
 							kebabMenuOpen = false;
 							onfind?.();
 						}}
-						aria-label={t('menu.find', currentLanguage)}
-											onmouseenter={(e) => showTooltip(e, t('menu.find', currentLanguage), 'F')}
+						aria-label={t('tooltip.find', currentLanguage)}
+											onmouseenter={(e) => showTooltip(e, t('tooltip.find', currentLanguage), 'F')}
 						onmousedown={(e) => e.preventDefault()}
 						onmouseleave={hideTooltip}
 						transition:fly={{ x: 10, duration: 200 }}>
