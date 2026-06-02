@@ -1360,6 +1360,7 @@ import { t } from './utils/i18n.js';
 				addToast(t('toast.savedNewerEdits', settings.language), 'info');
 				return;
 			}
+
 			tab.isEditing = false;
 			if (tab.path !== '') {
 				await loadMarkdown(tab.path, { preserveEditState: true });
